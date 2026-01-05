@@ -108,7 +108,7 @@ if uploaded_file is not None:
     output = io.StringIO()
     writer = csv.writer(output)
     # Write salary table header and rows
-    writer.writerow(["Full Name", "Total Salary"])
+    writer.writeow(["Full Name", "Total Salary."])
     for _, row in salary_table.iterrows():
         writer.writerow([row["Full Name"], row["Total Salary"]])
     # Add a blank row to separate tables
@@ -137,3 +137,4 @@ if uploaded_file is not None:
         file_name="processed_data.csv",
         mime="text/csv",
     )
+
