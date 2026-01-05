@@ -85,6 +85,15 @@ def process_dataframe(df: pd.DataFrame):
         .reset_index()
         .rename(columns={"Amount_numeric": "Total Benefits"})
     )
+
+    # Format the aggregated amounts as US currency strings (e.g., "$1,234.56").
+    # This ensures the tables and downloadable summary clearly show monetary values.
+    salary_summary["Total Salary"] = salary_summary["Total Salary"].apply(
+        lambda x: f"${x:,.2f}"
+    )
+    benefit_summary["Total Benefits"] = benefit_summary["Total Benefits"].apply(
+        lambda x: f"${x:,.2f}"
+    )
     return df, salary_summary, benefit_summary
 
 # If a file is uploaded, process it
@@ -108,7 +117,7 @@ if uploaded_file is not None:
     output = io.StringIO()
     writer = csv.writer(output)
     # Write salary table header and rows
-    writer.writeow(["Full Name", "Total Salary."])
+    writer.writerow(["Full Name", "Total Salary"])
     for _, row in salary_table.iterrows():
         writer.writerow([row["Full Name"], row["Total Salary"]])
     # Add a blank row to separate tables
@@ -137,4 +146,3 @@ if uploaded_file is not None:
         file_name="processed_data.csv",
         mime="text/csv",
     )
-
