@@ -18,21 +18,52 @@ uploaded_file = st.file_uploader(
 )
 
 def process_dataframe(df: pd.DataFrame):
-    """Process the raw DataFrame and return the cleaned data and summary tables."""
-    # Drop total or grand total rows
-    is_total = (
-        df["Fiscal Year & Fiscal Period (Combined)"].str.contains("Total", na=False)
-        | df["Funds Center Name"].str.contains("Total", na=False)
-        | df["Funds Center"].str.contains("Total", na=False)
-        | df["Employment Status & Description (Combined)"].str.contains(
-            "Total", na=False
-        )
-    )
-    df = df[~is_total].copy()
-    # Create Full Name and drop original name columns
-    df["Full Name"] = df["First Name"].fillna("") + " " + df["Last Name"].fillna("")
-    df.drop(columns=["First Name", "Last Name"], inplace=True)
-    # Determine Payment Type based on GL account
+    """Process the raw DataFrame and return the cleaned data and summary tables.
+
+    The function is resilient to missing columns: if any of the expected columns
+    used to detect total rows (e.g., "Fiscal Year & Fiscal Period (Combined)")
+    are absent, they are simply ignored when filtering out totals. It also
+    reorders columns only if they exist in the provided DataFrame.
+    """
+    # Identify and remove rows that represent totals or grand totals. Some files
+    # may not include all of these columns, so we build a mask only from
+    # existing columns. We also handle datasets where summary rows may appear
+    # across arbitrary columns by scanning the entire DataFrame for the word
+    # "Total". If "Total" appears anywhere in a row, that row is dropped.
+    total_mask = pd.Series(False, index=df.index)
+    # First, check specific columns when present to catch typical totals rows
+    total_check_cols = [
+        "Fiscal Year & Fiscal Period (Combined)",
+        "Funds Center Name",
+        "Funds Center",
+        "Employment Status & Description (Combined)",
+    ]
+    for col in total_check_cols:
+        if col in df.columns:
+            total_mask |= df[col].astype(str).str.contains("Total", case=False, na=False)
+    # Additionally, drop any row where any cell contains "Total" (case-insensitive).
+    # This handles files with different formats where totals appear in varied columns.
+    try:
+        # Convert the DataFrame to string for robust checking
+        global_total_mask = df.astype(str).apply(lambda col: col.str.contains("Total", case=False, na=False))
+        total_mask |= global_total_mask.any(axis=1)
+    except Exception:
+        # Fallback: if conversion fails (e.g., due to mixed types), skip global check
+        pass
+    # Filter out total rows
+    df = df[~total_mask].copy()
+
+    # Create Full Name column and drop original name columns if they exist
+    first_name_col = "First Name"
+    last_name_col = "Last Name"
+    if first_name_col in df.columns and last_name_col in df.columns:
+        df["Full Name"] = df[first_name_col].fillna("") + " " + df[last_name_col].fillna("")
+        df.drop(columns=[first_name_col, last_name_col], inplace=True)
+    elif "Full Name" not in df.columns:
+        # If we cannot derive a full name, ensure the column exists (empty)
+        df["Full Name"] = ""
+
+    # Determine Payment Type based on GL account (prefixes 51=Salary, 52=Benefit)
     def payment_type(gl_account: str) -> str:
         account = str(gl_account).lstrip("0") if gl_account is not None else ""
         if account.startswith("51"):
@@ -41,8 +72,15 @@ def process_dataframe(df: pd.DataFrame):
             return "Benefit"
         else:
             return "Other"
-    df["Payment Type"] = df["Gl Account"].apply(payment_type)
-    # Reorder columns: Full Name at position 6 (0-index) and Payment Type before Amount
+
+    if "Gl Account" in df.columns:
+        df["Payment Type"] = df["Gl Account"].apply(payment_type)
+    else:
+        # If GL Account column is missing, classify all as Other
+        df["Payment Type"] = "Other"
+
+    # Define desired column order. Some columns may not exist in the uploaded file,
+    # so we include only those that are present.
     desired_columns = [
         "Funds Center",
         "Funds Center Name",
@@ -64,13 +102,32 @@ def process_dataframe(df: pd.DataFrame):
         "Payment Type",
         "Amount",
     ]
-    df = df[desired_columns]
-    # Convert Amount for numeric summary
-    df["Amount_numeric"] = (
-        df["Amount"].str.replace("$", "", regex=False)
-        .str.replace(",", "", regex=False)
-        .astype(float)
-    )
+    # Only keep columns that exist in df and preserve their order
+    columns_in_df = [col for col in desired_columns if col in df.columns]
+    # Ensure "Full Name" and "Payment Type" are included even if they were added later
+    for col in ["Full Name", "Payment Type"]:
+        if col not in columns_in_df and col in df.columns:
+            columns_in_df.append(col)
+    # Reorder DataFrame by including desired columns first and appending any
+    # remaining columns that weren't specified. This preserves extra columns in
+    # unfamiliar datasets rather than dropping them.
+    remaining_cols = [col for col in df.columns if col not in columns_in_df]
+    df = df[columns_in_df + remaining_cols]
+
+    # Convert Amount for numeric summary. If Amount is not present or not string,
+    # skip conversion and set numeric amount to zero.
+    if "Amount" in df.columns:
+        # Remove currency symbols/commas and cast to float; invalid values become NaN
+        df["Amount_numeric"] = (
+            df["Amount"].astype(str)
+            .str.replace("$", "", regex=False)
+            .str.replace(",", "", regex=False)
+            .astype(float)
+        )
+    else:
+        df["Amount_numeric"] = 0.0
+
+    # Summarize salary and benefits
     salary_summary = (
         df[df["Payment Type"] == "Salary"]
         .groupby("Full Name")["Amount_numeric"]
@@ -86,14 +143,14 @@ def process_dataframe(df: pd.DataFrame):
         .rename(columns={"Amount_numeric": "Total Benefits"})
     )
 
-    # Format the aggregated amounts as US currency strings (e.g., "$1,234.56").
-    # This ensures the tables and downloadable summary clearly show monetary values.
+    # Format aggregated amounts as US currency strings (e.g., "$1,234.56")
     salary_summary["Total Salary"] = salary_summary["Total Salary"].apply(
         lambda x: f"${x:,.2f}"
     )
     benefit_summary["Total Benefits"] = benefit_summary["Total Benefits"].apply(
         lambda x: f"${x:,.2f}"
     )
+
     return df, salary_summary, benefit_summary
 
 # If a file is uploaded, process it
