@@ -197,15 +197,15 @@ if uploaded_file is not None:
         processed_df = processed_df.astype(str)
         salary_table = salary_table.astype(str)
         benefit_table = benefit_table.astype(str)
-    # Display the processed data tables and summaries
-    st.subheader("Processed Data (first 10 rows)")
-    st.dataframe(processed_df.head(10))
-
-    st.subheader("Total Salary by Individual")
-    st.dataframe(salary_table)
-
-    st.subheader("Total Benefits by Individual")
-    st.dataframe(benefit_table)
+        # Display the processed data tables and summaries
+        st.subheader("Processed Data (first 10 rows)")
+        st.dataframe(processed_df.head(10))
+    
+        st.subheader("Total Salary by Individual")
+        st.dataframe(salary_table)
+    
+        st.subheader("Total Benefits by Individual")
+        st.dataframe(benefit_table)
 
     # Provide a downloadable summary CSV file
     # Create a CSV in memory
