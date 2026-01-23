@@ -1,3 +1,37 @@
+# Temporary stub for altair to prevent import error in Streamlit deploy environment
+import sys
+import types
+
+# Create dummy altair module and submodules if not already present
+altair_module = types.ModuleType("altair")
+vega_module = types.ModuleType("vegalite")
+vega_v4_module = types.ModuleType("v4")
+api_module = types.ModuleType("api")
+
+# Define a dummy Chart class that has methods returning self
+class DummyChart:
+    def __init__(self, *args, **kwargs):
+        pass
+    def __getattr__(self, name):
+        return self
+    def __call__(self, *args, **kwargs):
+        return self
+
+api_module.Chart = DummyChart
+vega_v4_module.api = api_module
+vega_module.v4 = vega_v4_module
+altair_module.vegalite = vega_module
+
+sys.modules.setdefault("altair", altair_module)
+sys.modules.setdefault("altair.vegalite", vega_module)
+sys.modules.setdefault("altair.vegalite.v4", vega_v4_module)
+sys.modules.setdefault("altair.vegalite.v4.api", api_module)
+
+
+
+
+
+
 import streamlit as st
 import pandas as pd
 import csv
