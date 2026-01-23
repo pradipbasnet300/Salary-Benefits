@@ -1,3 +1,3 @@
 pandas
-altair
+altair<5
 streamlit
