@@ -189,10 +189,14 @@ def process_dataframe(df: pd.DataFrame):
 
 # If a file is uploaded, process it
 if uploaded_file is not None:
-    # Read the uploaded file as a DataFrame
-    raw_df = pd.read_csv(uploaded_file, encoding="utf-16le", sep="\t", dtype=str)
-    processed_df, salary_table, benefit_table = process_dataframe(raw_df)
+        # Read the uploaded file as DataFrame
+        raw_df = pd.read_csv(uploaded_file, encoding="utf-16le", sep="\t", dtype=str)
+        processed_df, salary_table, benefit_table = process_dataframe(raw_df)
 
+        # Convert dataframes to string type to avoid Arrow LargeUtf8 issues
+        processed_df = processed_df.astype(str)
+        salary_table = salary_table.astype(str)
+        benefit_table = benefit_table.astype(str)
     # Display the processed data tables and summaries
     st.subheader("Processed Data (first 10 rows)")
     st.dataframe(processed_df.head(10))
