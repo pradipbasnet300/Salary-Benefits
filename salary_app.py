@@ -190,10 +190,17 @@ def process_dataframe(df: pd.DataFrame):
 # If a file is uploaded, process it
 if uploaded_file is not None:
         # Read the uploaded file as DataFrame
-        raw_df = pd.read_csv(uploaded_file, encoding="utf-16le", sep="\t", dtype=str)
-        processed_df, salary_table, benefit_table = process_dataframe(raw_df)
-
-        # Convert dataframes to string type to avoid Arrow LargeUtf8 issues
+        raw_df = pd.read_csv(uploaded_file, encoding="utf-16le", sep="\t",         # Cast dataframes to plain Python types to avoid Arrow LargeUtf8/Duration issues.
+        # When pandas or pyarrow produce "LargeUtf8" types (long strings), the
+        # Streamlit front-end may throw an "Unrecognized type: 'LargeUtf8'" error
+        # because ArrowJS does not yet support these extended types. To avoid
+        # serializing columns as LargeUtf8 or Duration types, convert all columns
+        # to Python objects/strings before sending to st.dataframe. This sacrifices
+        # type fidelity (numbers become strings in the UI) but ensures the table
+        # renders without serialization errors.
+        processed_df = processed_df.astype(str)
+        salary_table = salary_table.astype(str)
+        benefit_table = benefit_table.astype(str)
         processed_df = processed_df.astype(str)
         salary_table = salary_table.astype(str)
         benefit_table = benefit_table.astype(str)
