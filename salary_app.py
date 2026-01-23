@@ -1,36 +1,62 @@
-# Temporary stub for altair to prevent import error in Streamlit deploy environment
+"""
+Streamlit application for summarizing labor distribution data.
+
+This file includes a small shim that provides a dummy ``altair`` module if the
+real Altair library is not installed. Some versions of Streamlit attempt to
+import Altair for charting support even when the application does not use it
+directly. Without Altair installed, these imports can trigger a
+``ModuleNotFoundError`` during Streamlit startup.
+
+The shim below creates a minimal ``altair`` package structure in ``sys.modules``
+before Streamlit is imported. This satisfies Streamlit's internal imports and
+prevents the application from failing on environments where Altair is not
+available. The stub ``Chart`` class implements no functionality but
+supports attribute access and method chaining for compatibility.
+"""
+
 import sys
 import types
 
-# Create dummy altair module and submodules if not already present
-altair_module = types.ModuleType("altair")
-vega_module = types.ModuleType("vegalite")
-vega_v4_module = types.ModuleType("v4")
-api_module = types.ModuleType("api")
+# Inject a minimal Altair stub into ``sys.modules`` if Altair is missing.
+# This guards against ``ModuleNotFoundError: No module named 'altair'`` that
+# can occur in some Streamlit deployments when Altair is not included in the
+# dependency list. See https://discuss.streamlit.io/t/encountering-modulenotfounderror-no-module-named-altair-vegalite-v4-when-deploying-to-streamlit-cloud/120613
+# for discussion.
+if 'altair' not in sys.modules:
+    # Create nested module stubs for ``altair.vegalite.v4.api``
+    altair_stub = types.ModuleType('altair')
+    vegalite_stub = types.ModuleType('altair.vegalite')
+    v4_stub = types.ModuleType('altair.vegalite.v4')
+    api_stub = types.ModuleType('altair.vegalite.v4.api')
 
-# Define a dummy Chart class that has methods returning self
-class DummyChart:
-    def __init__(self, *args, **kwargs):
-        pass
-    def __getattr__(self, name):
-        return self
-    def __call__(self, *args, **kwargs):
-        return self
+    class DummyChart:
+        """No-op stand-in for Altair's Chart class.
 
-api_module.Chart = DummyChart
-vega_v4_module.api = api_module
-vega_module.v4 = vega_v4_module
-altair_module.vegalite = vega_module
+        The methods return ``self`` to allow method chaining, and any
+        undefined attributes default to a callable that returns ``self``.
+        """
 
-sys.modules.setdefault("altair", altair_module)
-sys.modules.setdefault("altair.vegalite", vega_module)
-sys.modules.setdefault("altair.vegalite.v4", vega_v4_module)
-sys.modules.setdefault("altair.vegalite.v4.api", api_module)
+        def __init__(self, *args, **kwargs):
+            pass
 
+        def __getattr__(self, name):
+            # Return a function that ignores its arguments and returns the Chart
+            return lambda *args, **kwargs: self
 
+        def __repr__(self) -> str:
+            return '<Altair Chart stub>'
 
-
-
+    # Attach the stub Chart to the API module
+    api_stub.Chart = DummyChart
+    # Assemble the nested module hierarchy
+    v4_stub.api = api_stub
+    vegalite_stub.v4 = v4_stub
+    altair_stub.vegalite = vegalite_stub
+    # Register modules in ``sys.modules`` so import machinery can find them
+    sys.modules['altair'] = altair_stub
+    sys.modules['altair.vegalite'] = vegalite_stub
+    sys.modules['altair.vegalite.v4'] = v4_stub
+    sys.modules['altair.vegalite.v4.api'] = api_stub
 
 import streamlit as st
 import pandas as pd
@@ -51,11 +77,12 @@ uploaded_file = st.file_uploader(
     "Choose a CSV file", type=["csv"], accept_multiple_files=False
 )
 
+
 def process_dataframe(df: pd.DataFrame):
     """Process the raw DataFrame and return the cleaned data and summary tables.
 
-    The function is resilient to missing columns: if any of the expected columns
-    used to detect total rows (e.g., "Fiscal Year & Fiscal Period (Combined)")
+    The function is resilient to missing columns: if any of the expected
+    columns used to detect total rows (e.g., "Fiscal Year & Fiscal Period (Combined)")
     are absent, they are simply ignored when filtering out totals. It also
     reorders columns only if they exist in the provided DataFrame.
     """
@@ -79,7 +106,9 @@ def process_dataframe(df: pd.DataFrame):
     # This handles files with different formats where totals appear in varied columns.
     try:
         # Convert the DataFrame to string for robust checking
-        global_total_mask = df.astype(str).apply(lambda col: col.str.contains("Total", case=False, na=False))
+        global_total_mask = df.astype(str).apply(
+            lambda col: col.str.contains("Total", case=False, na=False)
+        )
         total_mask |= global_total_mask.any(axis=1)
     except Exception:
         # Fallback: if conversion fails (e.g., due to mixed types), skip global check
@@ -142,9 +171,8 @@ def process_dataframe(df: pd.DataFrame):
     for col in ["Full Name", "Payment Type"]:
         if col not in columns_in_df and col in df.columns:
             columns_in_df.append(col)
-    # Reorder DataFrame by including desired columns first and appending any
-    # remaining columns that weren't specified. This preserves extra columns in
-    # unfamiliar datasets rather than dropping them.
+    # Reorder DataFrame by including desired columns first and appending any remaining columns
+    # that weren't specified. This preserves extra columns in unfamiliar datasets rather than dropping them.
     remaining_cols = [col for col in df.columns if col not in columns_in_df]
     df = df[columns_in_df + remaining_cols]
 
@@ -187,32 +215,41 @@ def process_dataframe(df: pd.DataFrame):
 
     return df, salary_summary, benefit_summary
 
+
 # If a file is uploaded, process it
 if uploaded_file is not None:
-        # Read the uploaded file as DataFrame
-        raw_df = pd.read_csv(uploaded_file, encoding="utf-16le", sep="\t",         # Cast dataframes to plain Python types to avoid Arrow LargeUtf8/Duration issues.
-        # When pandas or pyarrow produce "LargeUtf8" types (long strings), the
-        # Streamlit front-end may throw an "Unrecognized type: 'LargeUtf8'" error
-        # because ArrowJS does not yet support these extended types. To avoid
-        # serializing columns as LargeUtf8 or Duration types, convert all columns
-        # to Python objects/strings before sending to st.dataframe. This sacrifices
-        # type fidelity (numbers become strings in the UI) but ensures the table
-        # renders without serialization errors.
-        processed_df = processed_df.astype(str)
-        salary_table = salary_table.astype(str)
-        benefit_table = benefit_table.astype(str)
-        processed_df = processed_df.astype(str)
-        salary_table = salary_table.astype(str)
-        benefit_table = benefit_table.astype(str)
-        # Display the processed data tables and summaries
-        st.subheader("Processed Data (first 10 rows)")
-        st.dataframe(processed_df.head(10))
-    
-        st.subheader("Total Salary by Individual")
-        st.dataframe(salary_table)
-    
-        st.subheader("Total Benefits by Individual")
-        st.dataframe(benefit_table)
+    # Read the uploaded file as a DataFrame
+    raw_df = pd.read_csv(uploaded_file, encoding="utf-16le", sep="\t", dtype=str)
+    processed_df, salary_table, benefit_table = process_dataframe(raw_df)
+
+    # Cast dataframes to plain Python types to avoid Arrow LargeUtf8/Duration issues.
+    # When pandas or pyarrow produce "LargeUtf8" types (long strings), the
+    # Streamlit front-end may throw an "Unrecognized type: 'LargeUtf8'" error
+    # because ArrowJS does not yet support these extended types. To avoid
+    # serializing columns as LargeUtf8 or Duration types, convert all columns
+    # to Python objects/strings before sending to st.dataframe. This sacrifices
+    # type fidelity (numbers become strings in the UI) but ensures the table
+    # renders without serialization errors.
+    # Convert all dataframes to string type. This forces pandas to use the
+    # object dtype for every column, which prevents pandas/pyarrow from
+    # emitting unsupported Arrow types like ``LargeUtf8`` during
+    # serialization to the browser. Without this conversion, long strings
+    # may be serialized as ``LargeUtf8``, which ArrowJS (used in the
+    # Streamlit frontend) does not recognize, leading to an
+    # ``Unrecognized type: \"LargeUtf8\"`` error on the client.
+    processed_df = processed_df.astype(str)
+    salary_table = salary_table.astype(str)
+    benefit_table = benefit_table.astype(str)
+
+    # Display the processed data tables and summaries
+    st.subheader("Processed Data (first 10 rows)")
+    st.dataframe(processed_df.head(10))
+
+    st.subheader("Total Salary by Individual")
+    st.dataframe(salary_table)
+
+    st.subheader("Total Benefits by Individual")
+    st.dataframe(benefit_table)
 
     # Provide a downloadable summary CSV file
     # Create a CSV in memory
